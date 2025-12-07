@@ -1,0 +1,240 @@
+<!--
+Certificate Auto-Generator Web App
+---------------------------------
+
+INSTRUCTIONS (read this before opening index.html in a browser):
+1) Save this file as `index.html`.
+2) Place your certificate image (the one you uploaded) in the same folder and rename it to: `certificate.png`.
+   - If you prefer to keep the original name, update the `IMAGE_SRC` constant in the <script> below.
+3) Open index.html in a modern browser (Chrome/Edge/Firefox). The page is mobile-friendly.
+4) Users can type their name, press Generate, then Download PNG or Download PDF.
+
+Font & placement settings requested by you:
+- Font family: Serif (Times/Georgia fallback)
+- Font weight: bold
+- Font size: 28px
+- Color: black
+- Placement: centered between the line containing "...certify that" and the line "has actively served as..."
+
+This single-file web app draws the certificate image into a canvas, prints the name centered at a calculated vertical position (proportional to the image height), and offers PNG & PDF downloads.
+
+-->
+
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Certificate Generator</title>
+  <style>
+    :root{--accent: #114b2b}
+    body{font-family: Inter, Arial, sans-serif;margin:0;background:linear-gradient(180deg,#0b2a17 0%, #0e3a22 60%);color:#0b2a17;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+    .card{background:#fff;padding:18px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.45);max-width:1000px;width:100%}
+    h1{font-size:18px;margin:0 0 12px}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .left{flex:1 1 380px}
+    .right{width:300px}
+    label{display:block;font-size:13px;margin-bottom:6px}
+    input[type=text]{width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:16px}
+    button{display:inline-block;padding:10px 14px;border-radius:8px;border:0;background:var(--accent);color:white;font-weight:600;cursor:pointer}
+    button.secondary{background:#2a6b46}
+    .canvas-wrap{background:#eee;padding:8px;border-radius:6px;display:flex;align-items:center;justify-content:center}
+    canvas{max-width:100%;height:auto;border:1px solid #ccc}
+    p.small{font-size:13px;color:#444}
+    .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+    footer{margin-top:12px;font-size:13px;color:#666}
+    @media (max-width:720px){.row{flex-direction:column}.right{width:100%}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Certificate Generator — Instant Download</h1>
+    <div class="row">
+      <div class="left">
+        <div class="canvas-wrap">
+          <canvas id="certCanvas">Your browser does not support canvas</canvas>
+        </div>
+        <div style="margin-top:10px">
+          <p class="small">Tip: Mobile users can rotate their phone if the canvas is large. If the background appears blurry, use a higher-resolution certificate.png.</p>
+        </div>
+      </div>
+      <div class="right">
+        <label for="nameInput">আপনার নাম লিখুন (Bangla/English দুটোই কাজ করবে)</label>
+        <input id="nameInput" type="text" placeholder="Enter full name" autofocus />
+
+        <div style="margin-top:10px">
+          <label for="fontSize">Font size (px)</label>
+          <input id="fontSize" type="number" value="28" min="8" max="120" />
+        </div>
+
+        <div style="margin-top:10px">
+          <label>Font weight & family (requested: Serif bold)</label>
+          <p class="small">Using: 'Times New Roman' / Georgia / serif fallback (bold)</p>
+        </div>
+
+        <div class="controls">
+          <button id="generateBtn">Generate</button>
+          <button id="downloadPngBtn" class="secondary">Download PNG</button>
+          <button id="downloadPdfBtn" class="secondary">Download PDF</button>
+        </div>
+
+        <div style="margin-top:12px">
+          <label for="yOffset">Vertical adjust (px)</label>
+          <input id="yOffset" type="number" value="0" />
+          <p class="small">Use this to nudge the name up/down if needed. Positive moves name down; negative up.</p>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <strong>How it works:</strong> লোড হওয়া certificate image এর ওপর Canvas এ নামটি draw করা হয় — নির্দেশিত font settings অনুযায়ী। তারপর এক ক্লিকে PNG/PDF পেতে পারবে।
+    </footer>
+  </div>
+
+  <!-- jsPDF CDN for PDF export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha512-+QkVYJQz8x+u1eVZ8q7wR6ZQZ3f6x0t4xK3z4p7Ww9YQK1cD7zq0tH4YlK6Y3y9Gq9lH3q9kJQ7zPq1Y3W2qg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <script>
+  // --------- CONFIG - Change only if you renamed the image ----------
+  const IMAGE_SRC = 'certificate.png'; // put your certificate image in same folder and name it certificate.png
+  // ------------------------------------------------------------------
+
+  const canvas = document.getElementById('certCanvas');
+  const ctx = canvas.getContext('2d');
+  const nameInput = document.getElementById('nameInput');
+  const generateBtn = document.getElementById('generateBtn');
+  const downloadPngBtn = document.getElementById('downloadPngBtn');
+  const downloadPdfBtn = document.getElementById('downloadPdfBtn');
+  const fontSizeInput = document.getElementById('fontSize');
+  const yOffsetInput = document.getElementById('yOffset');
+
+  const img = new Image();
+  img.src = IMAGE_SRC;
+  img.onload = () => {
+    // set canvas size to image natural size
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    drawTemplate();
+  };
+  img.onerror = (e) => {
+    alert('Certificate image not found. Make sure certificate.png is in the same folder as index.html and that the filename matches.');
+  };
+
+  function drawTemplate(nameText = ''){
+    // clear
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // draw image
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    if(!nameText) return;
+
+    // Requested style
+    const fontSize = parseInt(fontSizeInput.value,10) || 28;
+    const fontFamily = "Times New Roman, Georgia, serif"; // serif bold
+    const fontWeight = '700';
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#000000';
+    ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+
+    // Calculate vertical position between two lines. We use heuristics: place at ~38% of the image height
+    // because your certificate has the two lines at approx 33% and 44% of height; we place midpoint.
+    // Provide a small control to nudge if needed (yOffset)
+
+    const baseY = Math.round(canvas.height * 0.385);
+    const yOffset = parseInt(yOffsetInput.value,10) || 0;
+    const finalY = baseY + yOffset;
+
+    // Wrap long names to multiple lines if necessary
+    const maxWidth = canvas.width * 0.72; // allow 72% width
+    const lines = wrapText(ctx, nameText.trim(), maxWidth);
+
+    // If multiple lines, adjust vertical start so text block stays centered around finalY
+    const lineHeight = fontSize * 1.18;
+    const totalHeight = lines.length * lineHeight;
+    let startY = finalY - (totalHeight/2) + (lineHeight - (fontSize*0.18));
+
+    // draw each line
+    for(let i=0;i<lines.length;i++){
+      ctx.fillText(lines[i], canvas.width/2, startY + (i * lineHeight));
+    }
+  }
+
+  function wrapText(context, text, maxWidth) {
+    if(!text) return [''];
+    const words = text.split(' ');
+    const lines = [];
+    let line = '';
+
+    for (let n = 0; n < words.length; n++) {
+      const testLine = line ? line + ' ' + words[n] : words[n];
+      const metrics = context.measureText(testLine);
+      const testWidth = metrics.width;
+      if (testWidth > maxWidth && line) {
+        lines.push(line);
+        line = words[n];
+      } else {
+        line = testLine;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  generateBtn.addEventListener('click', ()=>{
+    const name = nameInput.value.trim();
+    if(!name){ alert('Please enter a name'); nameInput.focus(); return; }
+    drawTemplate(name);
+  });
+
+  downloadPngBtn.addEventListener('click', ()=>{
+    const name = nameInput.value.trim();
+    if(!name){ alert('Please enter a name first'); nameInput.focus(); return; }
+    // ensure generated
+    drawTemplate(name);
+    const dataURL = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = dataURL;
+    // filename safe: replace spaces with underscores
+    const safeName = name.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\-]/g,'');
+    a.download = `${safeName}_certificate.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+
+  downloadPdfBtn.addEventListener('click', async ()=>{
+    const name = nameInput.value.trim();
+    if(!name){ alert('Please enter a name first'); nameInput.focus(); return; }
+    drawTemplate(name);
+
+    // Use jsPDF to create a PDF with same aspect ratio
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({orientation: canvas.width >= canvas.height ? 'landscape' : 'portrait', unit: 'pt', format: [canvas.width, canvas.height]});
+    // add image
+    const imgData = canvas.toDataURL('image/png');
+    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+
+    const safeName = name.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\-]/g,'');
+    pdf.save(`${safeName}_certificate.pdf`);
+  });
+
+  // draw blank template first time
+  function drawTemplate(){
+    // placeholder until image loads
+    if(img.complete && img.naturalWidth){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    }
+  }
+
+  // Allow Enter key to trigger generate
+  nameInput.addEventListener('keydown',(e)=>{ if(e.key=== 'Enter'){ generateBtn.click(); } });
+
+  // When font size or y offset changes, redraw if name exists
+  fontSizeInput.addEventListener('change', ()=>{ if(nameInput.value.trim()) drawTemplate(nameInput.value.trim()); });
+  yOffsetInput.addEventListener('change', ()=>{ if(nameInput.value.trim()) drawTemplate(nameInput.value.trim()); });
+  </script>
+</body>
+</html>
